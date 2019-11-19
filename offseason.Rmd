@@ -1,0 +1,148 @@
+---
+title: "Players who benefited from the NBA Offseason"
+output: html_notebook
+author: "John Strasheim"
+---
+
+Created:  11/13/2019
+
+Data sources:  https://www.basketball-reference.com/leagues/NBA_2019_advanced.html  
+  
+  https://www.basketball-reference.com/leagues/NBA_2020_advanced.html
+
+Summary:  This analysis looks like at players who have benefited from moving teams in the 2019 NBA Offseason.
+
+
+### Import Libraries
+```{r, message=FALSE}
+library(tidyverse)
+library(rvest)
+```
+
+
+### Scrap Data for 2018-19 Season
+```{r}
+stats19 <- read_html('https://www.basketball-reference.com/leagues/NBA_2019_advanced.html') %>% 
+  html_nodes(xpath = '//*[@id="advanced_stats"]') %>% 
+  html_table()
+stats19 <- stats19[[1]]
+head(stats19)
+```
+
+### Scrap Data for 2019-20 Season (stats so far)
+```{r}
+stats20 <- read_html('https://www.basketball-reference.com/leagues/NBA_2020_advanced.html') %>% 
+  html_nodes(xpath = '//*[@id="advanced_stats"]') %>% 
+  html_table()
+stats20 <- stats20[[1]]
+head(stats20)
+```
+
+### Remove column headings we don't want
+```{r}
+stats19 <- stats19[, -c(9:23)]
+stats20 <- stats20[, -c(9:23)]
+
+stats19 <- stats19[, -c(10:14)]
+stats20 <- stats20[, -c(10:14)]
+
+stats19 <- stats19[, -1]
+stats20 <- stats20[, -1]
+```
+
+### Separate PER and VORP by Year
+```{r}
+col_headings <- c('Player', 'Pos', 'Age', 'Tm', 'G', 'MP', 'PER19', 'WS/48.19')
+names(stats19) <- col_headings
+col_headings <- c('Player', 'Pos', 'Age', 'Tm', 'G', 'MP', 'PER20', 'WS/48.20')
+names(stats20) <- col_headings
+```
+
+### Remove rows that have column headings in them
+```{r}
+stats19 <- stats19[!(stats19$Player=="Player"),]
+stats20 <- stats20[!(stats20$Player=="Player"),]
+```
+
+### Change data types of our columns
+```{r}
+stats19 <- transform(stats19, PER19= as.numeric(PER19))
+stats20 <- transform(stats20, PER20= as.numeric(PER20))
+
+stats19 <- transform(stats19, `WS.48.19`= as.numeric(`WS.48.19`))
+stats20 <- transform(stats20, `WS.48.20`= as.numeric(`WS.48.20`))
+
+stats19 <- transform(stats19, Age= as.numeric(Age))
+stats20 <- transform(stats20, Age= as.numeric(Age))
+
+stats19 <- transform(stats19, G= as.numeric(G))
+stats20 <- transform(stats20, G= as.numeric(G))
+
+stats19 <- transform(stats19, MP= as.numeric(MP))
+stats20 <- transform(stats20, MP= as.numeric(MP))
+```
+
+
+### Add Year to each df, create MPG column, filter out people who haven't played roughly half the season or 1/3 of each game.
+```{r}
+stats19 <- stats19 %>% mutate(G19 = G) %>% mutate(MPG19 = MP/G) %>% filter(MPG19 > 16) %>% filter(G > 40) %>% select(-`Pos`, -`Age`, -`MP`, -`G`)
+stats20 <- stats20 %>% mutate(G20 = G) %>% mutate(MPG20 = MP/G) %>% filter(MPG20 > 16) %>% filter(G > 5) %>% select(-`Pos`, -`Age`, -`MP`, -`G`)
+```
+
+
+### Merge the two dataframes together.
+```{r}
+stats <- stats19 %>% left_join(stats20, by=c("Player", "Tm"))
+```
+
+
+### Make a PER Percent Change column and Difference column.
+```{r}
+stats <- stats %>% mutate(WSPercentChange = ((`WS.48.20` - `WS.48.19`)/`WS.48.19`)*100) %>% mutate(WSDifference = WS.48.20-WS.48.19)
+stats <- stats %>% mutate(PERPercentChange = ((PER20 - PER19)/PER20)*100) %>% mutate(PERDifference = PER20-PER19)
+```
+
+
+```{r}
+library(ggthemes)
+i<- ggplot() +
+  theme_fivethirtyeight() +
+  geom_point(data=stats, aes(x=`WSDifference`, y=PERDifference)) +
+  geom_smooth(data=stats, aes(x=`WSDifference`, y=PERDifference), method='lm', se=FALSE) +
+  labs(x='WS/48 Change', y='PER Change', title= "Who has improved the most from last season so far?", subtitle="Andrew Wiggins and Luka Doncic stand out as MIP candidates so far this season", caption="Source:  Basketball-Reference | by John Strasheim | Stats accurate as of 11/19/2019") +
+   theme(plot.title= element_text(size=17, face="bold"), 
+        axis.title= element_text(size=10),
+        axis.text = element_text(size=9),
+        plot.subtitle = element_text(size=10, face="italic"),
+        plot.caption = element_text(size=10.5),
+        legend.text = element_text(size=8)
+  )
+i
+ggsave("offseason.png", i)
+```
+
+
+
+
+```{r}
+library(plotly)
+py <- plot_ly(data=stats, x= ~`WSDifference`, y= ~`PERDifference`,
+        hoverinfo = "text",
+        text = ~paste("Player:", Player,
+                      '<br>WS/48 Change', `WSDifference`,
+                      '<br>PER Change', PERDifference,
+                      '<br>Team:', Tm
+                      )) %>% 
+  layout(
+    title = "Who has Improved or Regressed this season? | John Strasheim",
+    xaxis = list(title = "WS/48 Difference from last season to this season (as of 11/19/19)"),
+    yaxis = list(title = "PER Difference from last year to this year")
+  )
+py
+```
+
+
+```{r}
+#api_create(py, filename="NBAOffseason")
+```
+
